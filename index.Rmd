@@ -1,0 +1,117 @@
+---
+title: "index"
+author: "Kiranmayi"
+date: "April 13, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warnings=FALSE)
+```
+```{r include=FALSE}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggrepel)
+library(tidyverse)
+
+deaths = read.csv("data/deaths.csv")
+life_expectancy = read.csv("data/life_expectancy.csv")
+ylds = read.csv("data/ylds.csv")
+data_df = inner_join(deaths, life_expectancy, by='age')
+data_df = data_df %>% separate(age,c("age_group",NA),2,remove = F)
+data_df[data_df$age_group == 'Un','age_group'] = 0
+data_df = data_df %>% replace(is.na(.),0)
+data_df$age_group = as.numeric(data_df$age_group)
+data_df['ylls'] = data_df$life.expectancy*data_df$deaths
+complete_data = inner_join(data_df,ylds, by = c('cause_name','sex','age'))
+complete_data['dalys'] = complete_data$ylls+complete_data$ylds
+complete_data = complete_data %>% replace(is.na(.),0)
+#complete_data[which(complete.cases(complete_data) == F),]
+```
+
+In this report, let us analyze differences in measures of disease burden in India by cause, age and sex. Data is cleaned and transformed to allow the analysis of metrics.  
+
+## Cause:  
+I would like to explore the metrics by aggregating the data by cause. After aggregating, I want to find out the top ten diseases that cause the highest overall health burden across each metric.  
+```{r echo=F, warning=FALSE}
+cause_data = complete_data %>% select(cause_name,deaths,ylls,ylds,dalys) %>%
+                         group_by(cause_name) %>% summarise_all(funs(sum)) %>%
+  gather(key="metric", value="Value", -cause_name)
+cause_data %>% group_by(metric) %>% top_n(10,Value)%>% 
+  ggplot(aes(reorder(x=cause_name,Value),y =Value))+
+  geom_bar(aes(fill=metric),stat='identity')+
+  facet_grid(metric~.,scales='free_y')+
+  coord_flip()+
+  theme(axis.title = element_blank()) +
+  theme(panel.grid.major = element_blank())+
+  theme(panel.grid.minor = element_blank())+
+  theme(axis.ticks = element_blank())+
+  theme(legend.position = 'none')+
+  ggtitle('Top 10 causes across metrics')
+```
+
+Top ten causes for each metric are displayed above. From the graphs, we can identity that the overall burden from deaths is comparitively less as compared to other metrics. The disease that cause highest number of deaths in India is *Ischematic heart disease*. The same disease also causes highest burden across metrics YLLs and DALYs. *Low back and neck pain* causes highest burden across YLDs. We can also observe that DALYs are mostly  influenced by YLLs.*Chronic obstructive pulmonary disease* is the only cause that is highly contributing to all metrics. Interestingly, *Road injuries* are not in the top ten causes of YLDs. So we can infer that road injuries are leading to higher proportion of deaths rather than disabilities.  
+
+Now I want to explore the death metric through tree map to analyze how each cause contributes to death.  
+```{r echo=F, warning=FALSE}
+library(treemap)
+cause_data %>% filter(metric=='deaths')%>%
+treemap(cause_data,
+        index=c('cause_name','metric'),
+        vSize='Value',
+        type='index')
+```
+
+From this, we can observe clearly the diseases that cause more deaths. *Ischematic heart disease*, *Chronic obstructive pulmonary disease*, *Cerbrovascular disease*, *Tuberculosis* and *Diarrheal diseases* are the top five diseases that contribute to deaths in India.   
+
+## Age:  
+Now I would like to explore the metrics by aggregating the data by age. After aggregating, I would like to examine the trend of each metric over age.  
+```{r echo=F, warning=FALSE}
+age_data = complete_data %>% select(age_group,deaths,ylls,ylds,dalys) %>%
+                         group_by(age_group) %>% summarise_all(funs(sum)) %>%
+  gather(key = 'metric', value="Value", - age_group)
+age_data %>% group_by(metric)%>%
+ggplot(aes(x=age_group,y=Value))+
+         geom_line(aes(color=metric))+
+    facet_grid(metric~.,scales='free_y')+
+  theme(legend.position = 'none')+
+  ggtitle('Metrics comparision across age groups')
+  
+```
+
+From the graphs, we can observe that *DALYs* and *YLLs* follow similar trends across age groups. The total burden of *DALYs* and *YLLs* is highest for age groups at 0 years and then there is a sharp decrease at 5 yeara. Then they steadily increase until age 60 and fall steadily until age 80. *Deaths* are also high at age 0 and there is a decrease in number at age 5. The number of deaths increase steadily until age 40 and then rapidly until age 80. Interestingly, there is a dip in number of deaths at age 70. *YLDs* follow a trend opposite to that of *deaths*. They increase steadily until age 10 and is at highest from ages 20 to 50. Then decrease steadily until age 80.  
+
+Now I would like to explore if the metrics are correlated across groups to test the similar trends in the graphs. Plotting a correlation map between metrics:  
+
+```{r echo=F, warning=FALSE}
+library(ggcorrplot)
+age_data %>% spread(metric,Value) %>% cor() %>% round(2)%>%
+ ggcorrplot(hc.order = T, lab = T)
+
+```
+
+From the correlation map, we can see that *DALYs* and *YLLs* are highly correlated. Also, *deaths* and *YLDs* have a negative correlation factor of -0.76. This confirms the trends we observed above. Also death and age are correlated which is seen above as number of deaths increase with age.   
+
+## Sex:  
+Now I would like to explore the metrics aggregating the data by sex. After aggregating, I would like to see how each metric varied across both sexes.  
+```{r echo=F, warning=FALSE}
+sex_data = complete_data %>% select(sex,deaths,ylls,ylds,dalys) %>%
+                         group_by(sex) %>% summarise_all(funs(sum)) %>%
+  gather(key = 'metric', value="Value", - sex)
+sex_data %>% group_by(metric)%>%
+ggplot(aes(x=sex,y=Value))+
+         geom_bar(aes(fill=metric),stat='identity',position = 'dodge')
+```
+
+From the graphs, we can see that *deaths* are slightly higher in males than females and *YLDs* are slightly higher is females than males. But *DALYs* and *YLLs* are significantly higher in males than females. The order of metrics across both sexes are same. Both males and females experience higher *DALYs* followed by *YLLs*, *YLDs* and *Deaths*.  
+
+```{r echo=F, warning=FALSE}
+#complete_data %>% select(sex, deaths, ylls, ylds, dalys) %>% filter(sex == 'female')
+  #gather(key = 'metric', value='Value',-sex)
+sex_data %>%
+ggplot(aes(x=sex,y=Value))+
+         geom_point(aes(color = metric, size=Value))
+```
+
+Instead of bar chart, the burden across both sexes can also be visualized as above. The size of the dots represent the value of metric and color represent the metric. *Deaths* of females have lowest burden and *DALYs* men have highest burden.
